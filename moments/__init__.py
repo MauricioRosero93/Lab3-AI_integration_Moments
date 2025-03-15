@@ -13,6 +13,8 @@ from moments.core.request import register_request_handlers
 from moments.core.templating import register_template_handlers
 from moments.settings import config
 
+from flask_migrate import Migrate  
+
 
 def create_app(config_name):
     app = Flask('moments')
@@ -21,6 +23,7 @@ def create_app(config_name):
 
     bootstrap.init_app(app)
     db.init_app(app)
+    migrate = Migrate(app, db)    #Migrar la base de datos nueva
     login_manager.init_app(app)
     mail.init_app(app)
     dropzone.init_app(app)

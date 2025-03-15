@@ -1,3 +1,4 @@
+from typing import List, Optional 
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -10,6 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from moments.core.extensions import db, whooshee
 
+from sqlalchemy import JSON  
 
 role_permission = db.Table(
     'role_permission',
@@ -285,12 +287,15 @@ class Photo(db.Model):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     description: Mapped[Optional[str]] = mapped_column(String(500))
+    alt_text: Mapped[Optional[str]] = mapped_column(String(500))  # NUEVO - PARA EL TEXTO ALTERNATIVO
     filename: Mapped[str] = mapped_column(String(64))
     filename_s: Mapped[str] = mapped_column(String(64))
     filename_m: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(timezone.utc), index=True)
     can_comment: Mapped[bool] = mapped_column(default=True)
     flag: Mapped[int] = mapped_column(default=0)
+    detected_objects: Mapped[Optional[str]] = mapped_column(String(500))   # NUEVO - PARA OBJETOS DETECTADOS
+    #detected_objects: Mapped[Optional[List[str]]] = mapped_column(JSON)  
 
     author_id: Mapped[int] = mapped_column(ForeignKey('user.id', ondelete='CASCADE'))
 

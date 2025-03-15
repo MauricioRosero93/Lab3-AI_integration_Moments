@@ -10,6 +10,11 @@ from moments.models import Collection, Comment, Follow, Notification, Photo, Tag
 from moments.notifications import push_collect_notification, push_comment_notification
 from moments.utils import flash_errors, redirect_back, rename_image, resize_image, validate_image
 
+from transformers import BlipProcessor, BlipForConditionalGeneration 
+from PIL import Image  
+import torch
+import json
+
 main_bp = Blueprint('main', __name__)
 
 
@@ -62,6 +67,17 @@ def search():
         pagination = User.query.whooshee_search(q).paginate(page=page, per_page=per_page)
     elif category == 'tag':
         pagination = Tag.query.whooshee_search(q).paginate(page=page, per_page=per_page)
+    elif category == 'object':
+        q = q.lower()  # Convierte la palabra clave a minúsculas
+        # Buscar imágenes donde el campo detected_objects contenga la palabra clave
+        photos = Photo.query.all()
+        results = []
+        for photo in photos:
+            if photo.detected_objects:  
+                objects = json.loads(photo.detected_objects)  # Convierte la cadena a lista
+                if q in objects:  # Busca la palabra clave en la lista de objetos
+                    results.append(photo)
+        pagination = db.paginate(Photo.query.filter(Photo.id.in_([photo.id for photo in results])), page=page, per_page=per_page)
     else:
         pagination = Photo.query.whooshee_search(q).paginate(page=page, per_page=per_page)
     results = pagination.items
@@ -117,6 +133,23 @@ def get_image(filename):
 def get_avatar(filename):
     return send_from_directory(current_app.config['AVATARS_SAVE_PATH'], filename)
 
+#FUNCIÓN PARA GENERAR TEXTO ALTERNATIVO
+def generate_alt_text(image_path):
+    processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+    model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+    image = Image.open(image_path).convert("RGB")
+    inputs = processor(image, return_tensors="pt")
+    out = model.generate(**inputs)
+    return processor.decode(out[0], skip_special_tokens=True)
+
+#FUNCIÓN PARA DETECTAR OBJETOS EN LAS IMÁGENES (YOLO)
+def detect_objects(image_path):
+    model = torch.hub.load('ultralytics/yolov5', 'yolov5s')  
+    img = Image.open(image_path)
+    results = model(img)
+    objects = results.pandas().xyxy[0]['name'].tolist()
+    print(f"Detected objects: {objects}") 
+    return objects
 
 @main_bp.route('/upload', methods=['GET', 'POST'])
 @login_required
@@ -133,8 +166,29 @@ def upload():
         f.save(current_app.config['MOMENTS_UPLOAD_PATH'] / filename)
         filename_s = resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['small'])
         filename_m = resize_image(f, filename, current_app.config['MOMENTS_PHOTO_SIZES']['medium'])
+
+        # Obtener la descripción del formulario
+        description = request.form.get('description')
+
+        # Generar texto alternativo solo si no se proporciona una descripción
+        alt_text = None
+        if not description:
+            alt_text = generate_alt_text(current_app.config['MOMENTS_UPLOAD_PATH'] / filename)
+
+        # Detectar objetos en la imagen
+        image_path = current_app.config['MOMENTS_UPLOAD_PATH'] / filename
+        objects = detect_objects(image_path) 
+
+        objects_str = json.dumps(objects) 
+
         photo = Photo(
-            filename=filename, filename_s=filename_s, filename_m=filename_m, author=current_user._get_current_object()
+            filename=filename,
+            filename_s=filename_s,
+            filename_m=filename_m,
+            author=current_user._get_current_object(),
+            description=description,
+            alt_text=alt_text,
+            detected_objects=objects_str
         )
         db.session.add(photo)
         db.session.commit()
